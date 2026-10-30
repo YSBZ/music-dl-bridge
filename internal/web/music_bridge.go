@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,15 +21,15 @@ import (
 
 const (
 	musicBridgeQueueRequestPrefix = "music-bridge:"
-	musicBridgeDefaultSource      = "netease"
 	musicBridgeDefaultLimit       = 10
 	musicBridgeMaxLimit           = 50
 	musicBridgeMaxSources         = 4
 )
 
 var (
-	musicBridgeSearchTimeout = 6 * time.Second
-	musicBridgeSearchSlots   = make(chan struct{}, musicBridgeMaxSources)
+	musicBridgeSearchTimeout   = 6 * time.Second
+	musicBridgeSearchSlots     = make(chan struct{}, musicBridgeMaxSources*4)
+	musicBridgeSearchAdmission sync.Mutex
 )
 
 type musicBridgeSearchFunc func(source, keyword string) ([]model.Song, error)
@@ -120,6 +121,7 @@ func registerMusicBridgeRoutes(api *gin.RouterGroup, queue *core.DownloadQueue, 
 		}
 		response := make([]musicBridgeSongResponse, 0, len(songs))
 		for _, song := range songs {
+			song = core.WithDownloadMetadata(song)
 			extra, marshalErr := json.Marshal(song.Extra)
 			if marshalErr != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encode search results"})
@@ -169,6 +171,10 @@ func registerMusicBridgeRoutes(api *gin.RouterGroup, queue *core.DownloadQueue, 
 			ID: request.Song.ID, Source: request.Song.Source, Name: request.Song.Name,
 			Artist: request.Song.Artist, Album: request.Song.Album, Cover: request.Song.Cover,
 			Extra: extra,
+		}
+		if core.IsPreviewSong(song) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "拒绝试听或短片段，请重新搜索完整版本"})
+			return
 		}
 		queueRequestID := musicBridgeQueueRequestPrefix + request.RequestID
 		input := core.DownloadTaskInput{
@@ -273,7 +279,7 @@ func musicBridgeSources(queryValues []string) ([]string, error) {
 		}
 	}
 	if len(sources) == 0 {
-		sources = []string{musicBridgeDefaultSource}
+		sources = core.GetDefaultSourceNames()
 	}
 	if len(sources) > musicBridgeMaxSources {
 		return nil, errors.New("at most four search sources may be selected")
@@ -282,35 +288,48 @@ func musicBridgeSources(queryValues []string) ([]string, error) {
 }
 
 func musicBridgeSearchSongs(ctx context.Context, search musicBridgeSearchFunc, keyword string, sources []string) ([]model.Song, error) {
+	// Reserve the entire request before starting any provider call. A slow source
+	// from a previous request must not cause abandoned partial fan-outs on retry.
+	musicBridgeSearchAdmission.Lock()
+	if err := ctx.Err(); err != nil {
+		musicBridgeSearchAdmission.Unlock()
+		return nil, err
+	}
+	if cap(musicBridgeSearchSlots)-len(musicBridgeSearchSlots) < len(sources) {
+		musicBridgeSearchAdmission.Unlock()
+		return nil, errMusicBridgeSearchBusy
+	}
+	for range sources {
+		musicBridgeSearchSlots <- struct{}{}
+	}
+	musicBridgeSearchAdmission.Unlock()
 	results := make(chan musicBridgeSearchResult, len(sources))
-	started := 0
+	started := len(sources)
 	for index, source := range sources {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case musicBridgeSearchSlots <- struct{}{}:
-			started++
-			go func(index int, source string) {
-				defer func() { <-musicBridgeSearchSlots }()
-				songs, err := search(source, keyword)
-				results <- musicBridgeSearchResult{index: index, songs: songs, err: err}
-			}(index, source)
-		default:
-			return nil, errMusicBridgeSearchBusy
-		}
+		go func(index int, source string) {
+			defer func() { <-musicBridgeSearchSlots }()
+			songs, err := search(source, keyword)
+			results <- musicBridgeSearchResult{index: index, songs: songs, err: err}
+		}(index, source)
 	}
 
 	ordered := make([][]model.Song, len(sources))
 	failed := 0
+	completed := 0
+collect:
 	for range started {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			if errors.Is(ctx.Err(), context.Canceled) || completed == 0 {
+				return nil, ctx.Err()
+			}
+			break collect
 		case result := <-results:
 			if result.err != nil {
 				failed++
 				continue
 			}
+			completed++
 			ordered[result.index] = result.songs
 		}
 	}

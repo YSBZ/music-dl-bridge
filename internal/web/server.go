@@ -405,6 +405,9 @@ func renderIndex(c *gin.Context, songs []model.Song, playlists []model.Playlist,
 
 	settings := core.GetWebSettings()
 	songs = filterSongsForDisplay(songs, settings)
+	for i := range songs {
+		songs[i] = core.WithDownloadMetadata(songs[i])
+	}
 	defaultPageSize := settings.WebPageSize
 	if defaultPageSize <= 0 {
 		defaultPageSize = core.DefaultWebPageSize

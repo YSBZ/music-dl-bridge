@@ -59,6 +59,7 @@ var localMusicScanCacheMu sync.RWMutex
 var localMusicScanCache localMusicScanSnapshot
 var localMusicScanRefreshMu sync.Mutex
 var localMusicScanRefreshInFlight bool
+var localMusicIndexSyncWorkers sync.WaitGroup
 var autoCacheMu sync.Mutex
 var autoCacheInFlight = make(map[string]struct{})
 var autoCacheSlots = make(chan struct{}, autoCacheMaxConcurrent)
@@ -261,7 +262,11 @@ func RegisterLocalMusicRoutes(api *gin.RouterGroup) {
 
 		// 扫描完成后同步到 SQLite 索引（异步），空扫描也要清除旧行。
 		if !refreshing {
-			go func() { _ = syncTracksToIndex(tracks) }()
+			localMusicIndexSyncWorkers.Add(1)
+			go func() {
+				defer localMusicIndexSyncWorkers.Done()
+				_ = syncTracksToIndex(tracks)
+			}()
 		}
 
 		c.JSON(http.StatusOK, gin.H{

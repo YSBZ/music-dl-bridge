@@ -2,6 +2,8 @@ module github.com/guohuiyuan/go-music-dl
 
 go 1.25.1
 
+replace github.com/guohuiyuan/music-lib => ./third_party/music-lib
+
 require (
 	gioui.org v0.9.1-0.20251215212054-7bcb315ee174
 	git.wow.st/gmp/jni v0.0.0-20210610011705-34026c7e22d0

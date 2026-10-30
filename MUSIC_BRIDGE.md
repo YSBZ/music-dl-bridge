@@ -26,7 +26,7 @@ Authorization: Bearer <MUSIC_BRIDGE_TOKEN>
 GET /music/api/music-bridge/search?q=晴天&sources=netease&limit=10
 ```
 
-`q` 必填，最多 200 个字符。`sources` 可省略（默认只搜 `netease`），也可用逗号分隔或重复传入；每次最多 4 个有效搜索源。`limit` 可选，默认 10，范围为 1–50。当前源码中的搜索源为 `netease`、`qq`、`kugou`、`kuwo`、`migu`、`bilibili`、`fivesing`、`jamendo`、`joox`、`qianqian`、`soda` 和 `apple`。
+`q` 必填，最多 200 个字符。`sources` 可省略，默认 `kugou,migu,qq,netease`；显式指定时保留选择，每次最多 4 个有效搜索源。`limit` 默认 10，范围为 1–50。当前源码还支持 `kuwo`、`bilibili`、`fivesing`、`jamendo`、`joox`、`qianqian`、`soda` 和 `apple` 等搜索源，但 Apple 当前只提供试听，歌曲候选会被过滤。
 
 响应只包含插件下载所需字段；`extra` 是 JSON 字符串，插件应将它作为字符串原样传入下载请求：
 
@@ -46,7 +46,7 @@ GET /music/api/music-bridge/search?q=晴天&sources=netease&limit=10
 }
 ```
 
-搜索对每个来源并发调用现有 provider，整体截止时间为 6 秒。provider 接口本身不接收 context，因此超时或客户端断开后，底层调用无法被强制取消；服务进程最多保留 4 个未结束的搜索调用，容量已满时返回 `503`，整体搜索超时返回 `504`。选择单一来源（默认 `netease`）可减少外部请求和等待时间。
+搜索并发调用选定 provider，截止时间 6 秒；截止时保留已成功完成的来源结果，没有成功来源才返回 `504`。provider 不接收 context，底层调用可能继续到各自超时（共享 HTTP 客户端为 2 分钟）；进程最多保留 16 个未结束调用，并在启动前原子预留整次请求的容量。容量不足返回 `503`，不启动部分搜索。连续超时仍可能暂时占满容量，稍后重试。
 
 ## 加入下载队列
 
@@ -106,12 +106,23 @@ GET /music/api/music-bridge/downloads/uuid-or-client-request-key
 
 ## 下游默认排序
 
-DL 网页歌曲列表默认使用既有 quality 排序并降序展示；码率未知按 0 放后，同码率保留原顺序。`node --test tests/song-sort.test.cjs` 验证默认排序行为。
+DL 网页默认保留后端综合排序。手动选择“按音质”仍沿用网页的码率排序；它是用户显式覆盖，不改变下载校验。`node --test tests/song-sort.test.cjs` 验证默认与显式排序行为。
 
 ## DL 服务端综合排序（2026-10-30）
 
-歌曲搜索统一在 DL 后端按歌名／歌手匹配度、版本提示、已知码率排序；桥接 API 在截取 limit 前排序，MP 插件无需升级，仍最多展示 10 条。网页关键词搜歌复用相同规则，默认综合排序；手动按音质仍可用。歌单、专辑导入不改曲目顺序。
+歌曲搜索先按歌名／明确歌手匹配；明确要求的版本优先于推断歌手。未指定版本时，用 Cover 署名和跨源歌手一致性作为弱证据，再降低衍生版本优先级。之后按有依据的 FLAC ＞ WAV ＞ MP3 格式偏好、同格式码率比较，未知格式不按码率猜测。码率读取原生 `Song.Bitrate`，兼容旧 `extra.bitrate`。桥接在 limit 截取前排序；网页默认复用后端排序。歌单、专辑导入不改变曲目顺序。
 
-默认降低 Live／现场、Cover／翻唱、伴奏／纯音乐、Remix／改编、Demo 的优先级；查询明确包含对应版本时改为优先匹配该版本。版本不删除，避免误杀。歌名和歌手支持两种前后顺序及连写。缺少码率时排在同等匹配的已知码率之后。
+默认降低 Live／现场、Cover／翻唱、伴奏／纯音乐、Remix／改编、Demo、DJ／变速及常见衍生版的优先级；明确查询对应版本时尊重该选择。明确试听、片段标记和 Apple 试听源排除；不单凭短时长删除完整短作品。原歌手判断是启发式，不做权威认证，版本仍可选择。
 
 原唱依据来自输入歌手和音源版本元数据，不表示已通过权威数据库核验。当前音源不提供原唱资源时，仍会返回可用衍生版本，不把这些结果标为原唱。未增加额外详情探测请求，避免拖慢搜索；缺失音质不会猜测。
+
+## 下载质量检查（2026-10-30）
+
+Web 普通下载（含 Range、关闭标签嵌入）、队列和桥接统一在保存/返回前用 ffprobe 检查实际字节；在线播放继续支持上游流。必须可找到 ffprobe，缺失时明确失败。不会将有损文件转成 FLAC。
+
+- 酷我改为高质量 FLAC、FLAC、320k、128k 请求顺序；咪咕按 FLAC、WAV、MP3 选择；网易云自动选择先 hires、lossless、exhigh，拒绝返回 freeTrialInfo 的试听链接。固定依赖和补丁见 `third_party/music-lib/LOCAL_PATCHES.md`。
+- 已知完整时长通过 `extra.musicdl_duration` 随原候选传入；实际短于预期超过 5%（至少容差 5 秒）则拒绝。未知完整时长且实际不足 60 秒拒绝；已知完整短作品正常接受。
+- FLAC、ALAC、常见无损/PCM 编码接受；MP3 至少 300 kbps（320k 容差），AAC/Vorbis/WMA 至少 256 kbps，Opus 至少 160 kbps。不能确认编码或码率时失败。码率门槛不等于对母带或历史转码的认证。
+- 检查通过后 warning 提供实际编码、码率和时长。权限不足、音源不可用或质量不足报失败，不自动下载翻唱替代，不覆盖已有曲库。旧低质量文件不会自动升级或重新校验去重记录。
+
+已有 MP 插件若显式填了 `netease`，需清空“音源”或改填 `kugou,migu,qq,netease` 才使用多源；无需为本次服务端调整升级插件。旧搜索卡片保留旧快照，更新后重新搜索。

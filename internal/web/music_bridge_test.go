@@ -98,7 +98,7 @@ func TestMusicBridgeSearchReturnsBoundedSongDTO(t *testing.T) {
 	if len(got) != 7 {
 		t.Fatalf("song DTO has unexpected fields: %#v", got)
 	}
-	w = musicBridgeDo(r, http.MethodGet, "/music/api/music-bridge/search?q=default", nil, "test-token")
+	w = musicBridgeDo(r, http.MethodGet, "/music/api/music-bridge/search?q=default&sources=netease", nil, "test-token")
 	if w.Code != http.StatusOK || searchedSource != "netease" || searchedKeyword != "default" {
 		t.Fatalf("default search status/source/keyword = %d/%q/%q, body %s", w.Code, searchedSource, searchedKeyword, w.Body.String())
 	}
@@ -273,7 +273,7 @@ func TestMusicBridgeSearchTimeoutBoundsProviderCalls(t *testing.T) {
 	done := make(chan *httptest.ResponseRecorder, cap(musicBridgeSearchSlots))
 	for range cap(musicBridgeSearchSlots) {
 		go func() {
-			done <- musicBridgeDo(r, http.MethodGet, "/music/api/music-bridge/search?q=slow", nil, "test-token")
+			done <- musicBridgeDo(r, http.MethodGet, "/music/api/music-bridge/search?q=slow&sources=netease", nil, "test-token")
 		}()
 	}
 	for range cap(musicBridgeSearchSlots) {

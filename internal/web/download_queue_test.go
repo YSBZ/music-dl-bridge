@@ -38,12 +38,17 @@ func TestDownloadQueueAPIPersistsAppendAndRejectsCrossOrigin(t *testing.T) {
 		r.ServeHTTP(w, req)
 		return w
 	}
-	payload := []byte(`{"request_id":"one","songs":[{"id":"1","source":"kuwo","name":"One"},{"id":"2","source":"kuwo","name":"Two"}]}`)
+	payload := []byte(`{"request_id":"one","songs":[{"id":"1","source":"kuwo","name":"One","duration":31},{"id":"2","source":"kuwo","name":"Two"}]}`)
 	if w := request("POST", "", payload, "http://other.test"); w.Code != 403 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	if w := request("POST", "", payload, "http://music.test"); w.Code != 202 {
 		t.Fatal(w.Code, w.Body.String())
+	}
+	task, err := q.FindByRequestKey("one:0")
+	var captured core.DownloadTaskInput
+	if err != nil || json.Unmarshal([]byte(task.Payload), &captured) != nil || captured.Song.Duration != 31 {
+		t.Fatalf("queue lost duration: %s, %v", task.Payload, err)
 	}
 	if w := request("POST", "", payload, "http://music.test"); w.Code != 202 || !bytes.Contains(w.Body.Bytes(), []byte(`"added":0`)) {
 		t.Fatal(w.Code, w.Body.String())

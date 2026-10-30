@@ -1131,6 +1131,8 @@ func RegisterMusicRoutes(api, configAPI *gin.RouterGroup) {
 			c.JSON(404, gin.H{"error": err.Error()})
 			return
 		}
+		selectedWithMetadata := core.WithDownloadMetadata(*selected)
+		selected = &selectedWithMetadata
 
 		c.JSON(200, gin.H{
 			"id":       selected.ID,
@@ -1225,17 +1227,17 @@ func RegisterMusicRoutes(api, configAPI *gin.RouterGroup) {
 			return
 		}
 
-		if embedMeta {
-			result, err := core.DownloadSongDataWithTemplate(tempSong, true, true, settings.DownloadFilenameTemplate)
+		if !streamPlayback {
+			result, err := core.DownloadSongDataWithTemplate(tempSong, embedMeta, embedMeta, settings.DownloadFilenameTemplate)
 			if err != nil {
-				c.String(502, "Upstream stream error")
+				c.String(502, "%s", err.Error())
 				return
 			}
 			warnings := make([]string, 0, 2)
 			if result.Warning != "" {
 				warnings = append(warnings, result.Warning)
 			}
-			if core.WebDAVConfigured(settings) {
+			if noRangeRequest && core.WebDAVConfigured(settings) {
 				if err := core.UploadSongToWebDAV(settings, result.Filename, result.Data); err != nil {
 					warnings = append(warnings, err.Error())
 				}
@@ -1245,7 +1247,8 @@ func RegisterMusicRoutes(api, configAPI *gin.RouterGroup) {
 			}
 
 			setDownloadHeader(c, result.Filename)
-			c.Data(200, result.ContentType, result.Data)
+			c.Header("Content-Type", result.ContentType)
+			http.ServeContent(c.Writer, c.Request, result.Filename, time.Time{}, bytes.NewReader(result.Data))
 			return
 		}
 

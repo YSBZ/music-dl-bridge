@@ -4,6 +4,8 @@
 
 新增 MoviePilot 音乐下载桥接 API、幂等下载请求和 DL 服务端综合搜索排序（歌名／歌手匹配、版本提示、码率）。详见 [MUSIC_BRIDGE.md](MUSIC_BRIDGE.md)。
 
+当前开发改动（2026-10-30，尚未发布）：默认酷狗、咪咕、QQ、网易云四源；优先匹配歌手和正确版本，排除明确试听，之后按 FLAC ＞ WAV ＞ MP3 和码率排序。所有下载经 ffprobe 核验真实时长和音质，低质量降级或试听不会被保存成成功文件；运行时必须安装 ffprobe。固定版 music-lib 的局部修复随 `third_party/` 构建，详见其 `LOCAL_PATCHES.md`。下方镜像版本仍是已发布旧版，不代表包含本次改动。
+
 ## 镜像部署与更新
 
 公开镜像：`ghcr.io/ysbz/music-dl-bridge:1.0.0`。正式部署固定版本，`latest` 指向最近发布版。容器工作目录 `/home/appuser`，配置挂载 `/home/appuser/data`；共享下载目录挂到 `/home/appuser/data/downloads` 与 `/app/downloads`。设置私有环境变量 `MUSIC_BRIDGE_TOKEN`，启动参数默认为 `web --port 8080 --no-browser`，访问 `/music`。

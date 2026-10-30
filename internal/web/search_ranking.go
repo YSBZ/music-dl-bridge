@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/guohuiyuan/go-music-dl/core"
 	"github.com/guohuiyuan/music-lib/model"
 )
 
@@ -17,9 +18,11 @@ var musicVersionGroups = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\binstrumental\b|伴奏|纯音乐`),
 	regexp.MustCompile(`(?i)\bremix\b|混音|改编`),
 	regexp.MustCompile(`(?i)\bdemo\b|试听版`),
+	regexp.MustCompile(`(?i)\bdj\b|DJ版|加速版|降速版|变速版|女声版|男声版|童声版|深情版|治愈版|合唱版|钢琴版|3D环绕版`),
 }
 var musicBrackets = regexp.MustCompile(`\([^)]*\)|（[^）]*）|\[[^\]]*\]|【[^】]*】`)
 var musicRateNumber = regexp.MustCompile(`\d+(?:\.\d+)?`)
+var musicCoverCredit = regexp.MustCompile(`(?i)(?:\bcover\s*[:：]?\s*|翻唱自\s*)([^)）\]】]+)`)
 
 func musicSearchText(s string) string {
 	return strings.Map(func(r rune) rune {
@@ -44,6 +47,9 @@ func musicBaseTitle(s string) string {
 	return musicSearchText(s)
 }
 func musicSearchRate(song model.Song) float64 {
+	if song.Bitrate > 0 {
+		return float64(song.Bitrate)
+	}
 	raw := strings.ToLower(song.Extra["bitrate"])
 	n, _ := strconv.ParseFloat(musicRateNumber.FindString(raw), 64)
 	if strings.Contains(raw, "mbps") {
@@ -54,17 +60,86 @@ func musicSearchRate(song model.Song) float64 {
 	return n
 }
 
-// rankMusicSearch preserves candidates and their IDs. Missing version metadata
-// never establishes originality; relevance precedes version hints and bitrate.
+func musicSearchFormat(song model.Song) int {
+	format := strings.ToLower(strings.TrimPrefix(song.Ext, "."))
+	if format == "" {
+		format = strings.ToLower(song.Extra["available_format"])
+	}
+	if format == "" {
+		format = strings.ToLower(song.Extra["format"])
+	}
+	switch format {
+	case "flac":
+		return 3
+	case "wav":
+		return 2
+	case "mp3":
+		return 1
+	}
+	return 0
+}
+
+// Performer evidence is a tie breaker, not an originality certificate: credits
+// in cover titles and agreement across sources help disambiguate same-name songs.
+func musicPerformerEvidence(songs []model.Song) map[string]int {
+	sources := make(map[string]map[string]bool)
+	credits := make(map[string]bool)
+	for _, song := range songs {
+		if core.IsPreviewSong(song) {
+			continue
+		}
+		title := musicBaseTitle(song.Name)
+		for _, match := range musicCoverCredit.FindAllStringSubmatch(song.Name, -1) {
+			for _, artist := range splitArtistTokens(match[1]) {
+				credits[title+"|"+musicSearchText(artist)] = true
+			}
+		}
+		derived := false
+		for _, re := range musicVersionGroups {
+			derived = derived || re.MatchString(song.Name+" "+song.Album)
+		}
+		if derived || song.Source == "" {
+			continue
+		}
+		for _, artist := range splitArtistTokens(song.Artist) {
+			key := title + "|" + musicSearchText(artist)
+			if sources[key] == nil {
+				sources[key] = make(map[string]bool)
+			}
+			sources[key][song.Source] = true
+		}
+	}
+	evidence := make(map[string]int)
+	for key, group := range sources {
+		if len(group) >= 2 {
+			evidence[key] = 1
+		}
+	}
+	for key := range credits {
+		evidence[key] += 2
+	}
+	return evidence
+}
+
+// rankMusicSearch preserves selectable full versions and IDs. Preview evidence
+// excludes a candidate; relevance, performer and requested version precede bitrate.
 func rankMusicSearch(query string, songs []model.Song) []model.Song {
 	type ranked struct {
-		song           model.Song
-		match, version int
-		rate           float64
+		song                              model.Song
+		match, performer, version, format int
+		rate                              float64
 	}
 	q := musicBaseTitle(query)
 	items := make([]ranked, 0, len(songs))
+	evidence := musicPerformerEvidence(songs)
+	explicitVersion := false
+	for _, re := range musicVersionGroups {
+		explicitVersion = explicitVersion || re.MatchString(query)
+	}
 	for _, song := range songs {
+		if core.IsPreviewSong(song) {
+			continue
+		}
 		title, artist := musicBaseTitle(song.Name), musicSearchText(song.Artist)
 		score := 0
 		if title != "" && q == title {
@@ -92,15 +167,32 @@ func rankMusicSearch(query string, songs []model.Song) []model.Song {
 				version++
 			}
 		}
-		items = append(items, ranked{song, score, version, musicSearchRate(song)})
+		performer := 0
+		for _, token := range splitArtistTokens(song.Artist) {
+			performer = max(performer, evidence[title+"|"+musicSearchText(token)])
+			// Explicit performer queries take precedence over inferred consensus.
+			if normalized := musicSearchText(token); normalized != "" && (q == title+normalized || q == normalized+title) {
+				score = max(score, 6)
+			}
+		}
+		items = append(items, ranked{song, score, performer, version, musicSearchFormat(song), musicSearchRate(song)})
 	}
 	sort.SliceStable(items, func(i, j int) bool {
 		a, b := items[i], items[j]
 		if a.match != b.match {
 			return a.match > b.match
 		}
+		if explicitVersion && a.version != b.version {
+			return a.version < b.version
+		}
+		if a.performer != b.performer {
+			return a.performer > b.performer
+		}
 		if a.version != b.version {
 			return a.version < b.version
+		}
+		if a.format != b.format {
+			return a.format > b.format
 		}
 		return a.rate > b.rate
 	})

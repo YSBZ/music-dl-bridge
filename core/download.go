@@ -34,6 +34,9 @@ func DownloadSongDataWithTemplate(song *model.Song, withCover bool, withLyrics b
 	if strings.TrimSpace(song.ID) == "" || strings.TrimSpace(song.Source) == "" {
 		return nil, errors.New("missing song id or source")
 	}
+	if IsPreviewSong(*song) {
+		return nil, errors.New("拒绝试听或短片段，请选择完整歌曲版本")
+	}
 
 	normalized := *song
 	normalized.Name = strings.TrimSpace(normalized.Name)
@@ -47,6 +50,10 @@ func DownloadSongDataWithTemplate(song *model.Song, withCover bool, withLyrics b
 	}
 
 	audioData, contentType, err := fetchSongAudio(&normalized)
+	if err != nil {
+		return nil, err
+	}
+	quality, err := checkDownloadedAudio(normalized, audioData)
 	if err != nil {
 		return nil, err
 	}
@@ -74,16 +81,16 @@ func DownloadSongDataWithTemplate(song *model.Song, withCover bool, withLyrics b
 	}
 
 	finalData := audioData
-	warning := ""
+	warning := quality
 	if (ext == "mp3" || ext == "flac" || ext == "m4a" || ext == "wma") && (normalized.Album != "" || lyric != "" || len(coverData) > 0) {
 		embeddedData, embedErr := EmbedSongMetadata(audioData, &normalized, lyric, coverData, coverMime)
 		switch {
 		case embedErr == nil:
 			finalData = embeddedData
 		case errors.Is(embedErr, ErrFFmpegNotFound):
-			warning = "ffmpeg not found, metadata embedding skipped"
+			warning += "; ffmpeg not found, metadata embedding skipped"
 		default:
-			warning = "metadata embedding failed, using original audio"
+			warning += "; metadata embedding failed, using original audio"
 		}
 	}
 

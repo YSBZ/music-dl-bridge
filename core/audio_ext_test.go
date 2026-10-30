@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"github.com/guohuiyuan/music-lib/model"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,6 +15,8 @@ func TestDetectAudioExtBySignature(t *testing.T) {
 		data []byte
 		want string
 	}{
+		{name: "wav", data: []byte("RIFF1234WAVEfmt "), want: "wav"},
+		{name: "riff video is not wav", data: []byte("RIFF1234AVI "), want: ""},
 		{name: "flac", data: []byte{'f', 'L', 'a', 'C', 0x00}, want: "flac"},
 		{name: "id3 mp3", data: []byte{'I', 'D', '3', 0x04}, want: "mp3"},
 		{name: "unknown", data: []byte("not-audio"), want: ""},
@@ -25,6 +28,17 @@ func TestDetectAudioExtBySignature(t *testing.T) {
 				t.Fatalf("DetectAudioExtBySignature() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestWAVMetadataDoesNotPrependMP3Tag(t *testing.T) {
+	data := []byte("RIFF1234WAVEfmt ")
+	got, err := EmbedSongMetadata(data, &model.Song{Name: "test", Artist: "test", Album: "test"}, "", nil, "")
+	if err != nil || !bytes.Equal(got, data) {
+		t.Fatalf("WAV modified as MP3: %q, %v", got, err)
+	}
+	if AudioMimeByExt("wav") != "audio/wav" || DetectAudioExtByContentType("audio/x-wav") != "wav" {
+		t.Fatal("WAV MIME not preserved")
 	}
 }
 

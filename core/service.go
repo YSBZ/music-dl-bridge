@@ -866,6 +866,9 @@ func DetectAudioExt(data []byte) string {
 }
 
 func DetectAudioExtBySignature(data []byte) string {
+	if len(data) >= 12 && (bytes.Equal(data[:4], []byte("RIFF")) || bytes.Equal(data[:4], []byte("RF64"))) && bytes.Equal(data[8:12], []byte("WAVE")) {
+		return "wav"
+	}
 	if len(data) >= 16 && bytes.Equal(data[:16], []byte{0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11, 0xA6, 0xD9, 0x00, 0xAA, 0x00, 0x62, 0xCE, 0x6C}) {
 		return "wma"
 	}
@@ -894,6 +897,8 @@ func DetectAudioExtByContentType(contentType string) string {
 	}
 
 	switch contentType {
+	case "audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave":
+		return "wav"
 	case "audio/flac", "audio/x-flac":
 		return "flac"
 	case "audio/x-ms-wma", "audio/wma", "video/x-ms-asf", "application/vnd.ms-asf":
@@ -911,6 +916,8 @@ func DetectAudioExtByContentType(contentType string) string {
 
 func AudioMimeByExt(ext string) string {
 	switch strings.ToLower(strings.TrimSpace(ext)) {
+	case "wav":
+		return "audio/wav"
 	case "wma":
 		return "audio/x-ms-wma"
 	case "flac":
@@ -1077,15 +1084,7 @@ func GetTopListSourceNames() []string {
 }
 
 func GetDefaultSourceNames() []string {
-	allSources := GetAllSourceNames()
-	var defaultSources []string
-	excluded := map[string]bool{"bilibili": true, "joox": true, "jamendo": true, "fivesing": true, "local": true}
-	for _, source := range allSources {
-		if !excluded[source] {
-			defaultSources = append(defaultSources, source)
-		}
-	}
-	return defaultSources
+	return []string{"kugou", "migu", "qq", "netease"}
 }
 
 func GetSourceDescription(source string) string {

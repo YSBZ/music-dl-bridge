@@ -28,6 +28,7 @@ func withLocalMusicDownloadDir(t *testing.T, dir string) {
 	}
 	t.Cleanup(func() {
 		waitForLocalMusicScanRefresh(t)
+		localMusicIndexSyncWorkers.Wait()
 		localMusicDownloadDirProvider = original
 	})
 }

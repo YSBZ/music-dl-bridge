@@ -6,6 +6,7 @@ ARG TARGETOS=linux
 ARG TARGETARCH
 
 COPY go.mod go.sum ./
+COPY third_party/music-lib ./third_party/music-lib
 RUN go mod download
 
 COPY . .

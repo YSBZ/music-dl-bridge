@@ -3,6 +3,7 @@ WORKDIR /src
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 COPY go.mod go.sum ./
+COPY third_party/music-lib ./third_party/music-lib
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/music-dl ./cmd/music-dl
