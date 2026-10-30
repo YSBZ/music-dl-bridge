@@ -924,6 +924,10 @@ func RegisterMusicRoutes(api, configAPI *gin.RouterGroup) {
 			allSongs = filterSongsByExactArtist(allSongs, exactArtist)
 		}
 
+		if searchType == "song" && importCollection == nil {
+			allSongs = rankMusicSearch(keyword, allSongs)
+		}
+
 		renderIndex(c, allSongs, allPlaylists, keyword, sources, errorMsg, searchType, "", "", "", false, "", importCollection)
 	})
 

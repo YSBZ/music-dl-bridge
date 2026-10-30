@@ -660,6 +660,7 @@ func StartWithOptions(port string, opts StartOptions) {
 		return
 	}
 	RegisterDownloadQueueRoutes(api, queue)
+	RegisterMusicBridgeRoutes(api, queue)
 
 	listenAddr := opts.ListenHost + ":" + port
 	listener, err := net.Listen("tcp", listenAddr)

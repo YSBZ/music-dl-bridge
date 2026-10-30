@@ -106,6 +106,16 @@ func (q *DownloadQueue) Enqueue(requestID string, inputs []DownloadTaskInput) (a
 	return
 }
 
+// FindByRequestKey returns the persistent task associated with one queue request key.
+func (q *DownloadQueue) FindByRequestKey(requestKey string) (DownloadTask, error) {
+	var task DownloadTask
+	if strings.TrimSpace(requestKey) == "" {
+		return task, errors.New("request key is empty")
+	}
+	err := q.db.Where("request_key = ? AND removed = ?", requestKey, false).Take(&task).Error
+	return task, err
+}
+
 func (q *DownloadQueue) List(page, size int, status string) ([]DownloadTask, int64, map[string]int64, error) {
 	if page < 1 {
 		page = 1

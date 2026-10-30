@@ -1,3 +1,23 @@
+# Music DL Bridge
+
+基于 [guohuiyuan/go-music-dl v1.1.3](https://github.com/guohuiyuan/go-music-dl/tree/2c1cefe7064fba6e46034359791060debbc935e6) 的下游版本，保留上游 AGPL-3.0 许可证。上游功能与版权说明保留在下方。
+
+新增 MoviePilot 音乐下载桥接 API、幂等下载请求和 DL 服务端综合搜索排序（歌名／歌手匹配、版本提示、码率）。详见 [MUSIC_BRIDGE.md](MUSIC_BRIDGE.md)。
+
+## 镜像部署与更新
+
+公开镜像：`ghcr.io/ysbz/music-dl-bridge:1.0.0`。正式部署固定版本，`latest` 指向最近发布版。容器工作目录 `/home/appuser`，配置挂载 `/home/appuser/data`；共享下载目录挂到 `/home/appuser/data/downloads` 与 `/app/downloads`。设置私有环境变量 `MUSIC_BRIDGE_TOKEN`，启动参数默认为 `web --port 8080 --no-browser`，访问 `/music`。
+
+保留 NAS 原配置和下载数据；从程序挂载方案迁移时，移除旧 `/opt/music-bridge` 挂载、entrypoint、复制命令和 `pull_policy: never`。镜像默认 root，与现有 NAS 使用方式一致，不递归修改媒体目录所有权。不要将 Token、Cookie 或数据库写入镜像。
+
+开发：`go test ./core ./internal/web ./cmd/music-dl`；`node --test tests/song-sort.test.cjs`。构建：`docker buildx build --platform linux/amd64 -f Dockerfile.bridge -t music-dl-bridge:verify --load .`；验证：`bash tools/verify-bridge-image.sh music-dl-bridge:verify`。
+
+发布：推送 `v1.0.0` 等版本标签，Actions 先测试、构建并验证容器，再发布固定版本及 `latest`。手动运行仅发布提交 SHA 标签，不覆盖正式版。
+
+---
+
+## 上游说明
+
 # Go Music DL
 
 > ⭐ 如果这个项目对你有帮助，欢迎点一个 Star。
@@ -40,6 +60,10 @@ docker compose up -d --pull always --remove-orphans
 ```
 
 访问 `http://localhost:8080`。首次启动会自动创建 `./data` 并配置好容器写权限；Compose 不依赖仓库里的 Dockerfile 或其他文件，只需 `docker-compose.yml` 和镜像即可启动。修改源码后可使用 `docker compose -f docker-compose.dev.yml up -d --build` 本地构建。
+
+## MP 音乐下载桥接
+
+通过 JSON API 供 MP 插件查询音源并将单曲加入现有下载队列，配置、请求格式和状态说明见 [MUSIC_BRIDGE.md](./MUSIC_BRIDGE.md)。
 
 ---
 
