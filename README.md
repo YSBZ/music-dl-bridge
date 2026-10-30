@@ -8,7 +8,7 @@
 
 ## 镜像部署与更新
 
-公开镜像：`ghcr.io/ysbz/music-dl-bridge:1.0.0`。正式部署固定版本，`latest` 指向最近发布版。容器工作目录 `/home/appuser`，配置挂载 `/home/appuser/data`；共享下载目录挂到 `/home/appuser/data/downloads` 与 `/app/downloads`。设置私有环境变量 `MUSIC_BRIDGE_TOKEN`，启动参数默认为 `web --port 8080 --no-browser`，访问 `/music`。
+公开镜像（Actions 自动发布）：`ghcr.io/ysbz/music-dl-bridge:1.0.1`。Docker Hub 同步地址：`ysbz682/music-dl-bridge:1.0.1`（当前由本机同步，尚未配置 Actions 的 Docker Hub 凭据）。正式部署固定版本，`latest` 指向最近发布版。容器工作目录 `/home/appuser`，配置挂载 `/home/appuser/data`；共享下载目录挂到 `/home/appuser/data/downloads` 与 `/app/downloads`。设置私有环境变量 `MUSIC_BRIDGE_TOKEN`，启动参数默认为 `web --port 8080 --no-browser`，访问 `/music`。
 
 保留 NAS 原配置和下载数据；从程序挂载方案迁移时，移除旧 `/opt/music-bridge` 挂载、entrypoint、复制命令和 `pull_policy: never`。镜像默认 root，与现有 NAS 使用方式一致，不递归修改媒体目录所有权。不要将 Token、Cookie 或数据库写入镜像。
 
